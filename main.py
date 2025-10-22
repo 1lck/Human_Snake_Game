@@ -21,8 +21,12 @@ class HandGestureGame:
         
         # 摄像头初始化
         self.cap = cv2.VideoCapture(0)
-        self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.cam_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.cam_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        # 窗口尺寸（初始化为摄像头分辨率）
+        self.window_width = self.cam_width
+        self.window_height = self.cam_height
         
         # 游戏状态
         self.score = 0
@@ -37,11 +41,15 @@ class HandGestureGame:
         self.finger_pos = None
         self.finger_radius = 10
         
+        # 创建可调整大小的窗口
+        cv2.namedWindow('Hand Gesture Game', cv2.WINDOW_NORMAL)
+        cv2.resizeWindow('Hand Gesture Game', self.window_width, self.window_height)
+        
     def generate_random_target(self):
         """生成随机目标点位置"""
         margin = 50  # 边距，避免目标点太靠近边缘
-        x = random.randint(margin, self.frame_width - margin)
-        y = random.randint(margin, self.frame_height - margin)
+        x = random.randint(margin, self.window_width - margin)
+        y = random.randint(margin, self.window_height - margin)
         return (x, y)
     
     def calculate_distance(self, pos1, pos2):
@@ -85,7 +93,7 @@ class HandGestureGame:
         cv2.putText(
             frame, 
             time_text, 
-            (self.frame_width - text_size[0] - 10, 40), 
+            (self.window_width - text_size[0] - 10, 40), 
             cv2.FONT_HERSHEY_SIMPLEX, 
             1.2, 
             (0, 255, 255), 
@@ -105,7 +113,7 @@ class HandGestureGame:
         cv2.putText(
             frame, 
             "Press 'q' to quit", 
-            (10, self.frame_height - 20), 
+            (10, self.window_height - 20), 
             cv2.FONT_HERSHEY_SIMPLEX, 
             0.6, 
             (200, 200, 200), 
@@ -116,6 +124,7 @@ class HandGestureGame:
         """主游戏循环"""
         print("游戏开始！用你的食指触碰蓝色点来得分。")
         print("按 'q' 键退出游戏。")
+        print("提示：你可以拖动窗口边缘来调整大小。")
         
         while self.cap.isOpened():
             success, frame = self.cap.read()
@@ -125,6 +134,27 @@ class HandGestureGame:
             
             # 翻转画面（镜像效果）
             frame = cv2.flip(frame, 1)
+            
+            # 获取当前窗口大小
+            window_rect = cv2.getWindowImageRect('Hand Gesture Game')
+            if window_rect[2] > 0 and window_rect[3] > 0:
+                new_width = window_rect[2]
+                new_height = window_rect[3]
+                
+                # 如果窗口大小改变，更新相关参数
+                if new_width != self.window_width or new_height != self.window_height:
+                    self.window_width = new_width
+                    self.window_height = new_height
+                    
+                    # 确保目标点在新窗口范围内
+                    margin = 50
+                    if self.target_pos[0] > self.window_width - margin:
+                        self.target_pos = self.generate_random_target()
+                    elif self.target_pos[1] > self.window_height - margin:
+                        self.target_pos = self.generate_random_target()
+            
+            # 调整帧大小以适应窗口
+            frame_resized = cv2.resize(frame, (self.window_width, self.window_height))
             
             # 转换颜色空间（MediaPipe 需要 RGB）
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -140,7 +170,7 @@ class HandGestureGame:
                 for hand_landmarks in results.multi_hand_landmarks:
                     # 绘制手部骨架线
                     self.mp_drawing.draw_landmarks(
-                        frame,
+                        frame_resized,
                         hand_landmarks,
                         self.mp_hands.HAND_CONNECTIONS,
                         self.mp_drawing_styles.get_default_hand_landmarks_style(),
@@ -150,10 +180,9 @@ class HandGestureGame:
                     # 获取食指尖端坐标（landmark 8）
                     index_finger_tip = hand_landmarks.landmark[8]
                     
-                    # 转换为像素坐标
-                    h, w, c = frame.shape
-                    finger_x = int(index_finger_tip.x * w)
-                    finger_y = int(index_finger_tip.y * h)
+                    # 转换为像素坐标（基于调整后的窗口大小）
+                    finger_x = int(index_finger_tip.x * self.window_width)
+                    finger_y = int(index_finger_tip.y * self.window_height)
                     self.finger_pos = (finger_x, finger_y)
             
             # 检测碰撞
@@ -163,10 +192,10 @@ class HandGestureGame:
                 print(f"得分！当前分数: {self.score}")
             
             # 绘制UI
-            self.draw_ui(frame)
+            self.draw_ui(frame_resized)
             
             # 显示画面
-            cv2.imshow('Hand Gesture Game', frame)
+            cv2.imshow('Hand Gesture Game', frame_resized)
             
             # 按 'q' 退出
             if cv2.waitKey(1) & 0xFF == ord('q'):
